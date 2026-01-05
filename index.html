@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Salvavidascraft</title>
+    <style>
+        /* 1. FUENTE PERSONALIZADA LOCAL */
+        @font-face {
+            font-family: 'Minecraftia';
+            src: url('Minecraftia.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }
+
+        body { 
+            font-family: 'Minecraftia', sans-serif; 
+            /* 2. FONDO EN BUCLE (TILED) */
+            background-image: url('background.png');
+            background-repeat: repeat;
+            background-attachment: fixed;
+            color: #e0e0e0; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            padding: 20px; 
+            margin: 0;
+        }
+        
+        h1 {
+            font-size: 3.5rem;
+            color: #ffffff;
+            margin-bottom: 5px;
+        }
+
+        .description {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            text-align: center;
+            border: 1px solid #5d5d5d;
+        }
+
+        .description a {
+            color: #55ff55;
+            text-decoration: none;
+        }
+
+        .description a:hover {
+            text-decoration: underline;
+        }
+
+        #controls { 
+            background: #313233; 
+            padding: 20px; 
+            border: 3px solid #5d5d5d;
+            border-top-color: #8b8b8b;
+            border-left-color: #8b8b8b;
+            display: flex; 
+            gap: 25px; 
+            align-items: center; 
+            flex-wrap: wrap;
+            box-shadow: 0 8px 0px rgba(0,0,0,0.4);
+            margin-bottom: 30px;
+        }
+
+        .offset-input {
+            background: #000; 
+            border: 2px solid #5d5d5d; 
+            color: #3fe044; 
+            padding: 8px; 
+            width: 90px; 
+            font-family: 'Minecraftia', sans-serif;
+            font-size: 1rem;
+            text-align: center;
+        }
+
+        .viewport {
+            max-width: 95vw; 
+            max-height: 70vh;
+            overflow: auto; 
+            border: 4px solid #111; 
+            background: rgba(0,0,0,0.85); /* Fondo negro traslúcido para ver el tile atrás */
+            padding: 60px 0;
+            image-rendering: pixelated;
+        }
+
+        #grid-container { display: grid; position: relative; }
+
+        .block {
+            width: 28px; height: 28px; 
+            background-size: cover;
+            position: relative; 
+            border: 1px solid rgba(255,255,255,0.03);
+        }
+
+        .coord-label {
+            background: #222; color: #7de07d; 
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; user-select: none;
+            position: sticky; z-index: 10;
+        }
+
+        .coord-label.top { top: 0; border-bottom: 2px solid #444; height: 35px; }
+        .coord-label.left { left: 0; border-right: 2px solid #444; width: 60px; }
+
+        .block:hover { 
+            outline: 3px solid #fff; z-index: 100; 
+            filter: brightness(1.3); cursor: crosshair;
+            transform: scale(1.1);
+        }
+
+        /* TOOLTIP MINECRAFT */
+        .block:hover::after {
+            content: attr(data-info);
+            position: absolute; left: 50%; transform: translateX(-50%);
+            background: #1a0a1a; color: #fff;
+            padding: 10px; border: 2px solid #2d0e66;
+            font-size: 1.1rem; white-space: pre; z-index: 200; 
+            pointer-events: none; text-align: center;
+            box-shadow: 5px 5px 0px rgba(0,0,0,0.5);
+        }
+
+        .block:hover::after { bottom: 140%; }
+        .block.tooltip-bottom:hover::after { top: 140%; bottom: auto; }
+
+        .block.done { filter: grayscale(1) brightness(0.2); }
+        .block.done::before {
+            content: "✔"; position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%); color: #3fe044; font-size: 18px;
+        }
+
+        /* Scrollbar estilo retro */
+        .viewport::-webkit-scrollbar { width: 12px; height: 12px; }
+        .viewport::-webkit-scrollbar-track { background: #111; }
+        .viewport::-webkit-scrollbar-thumb { background: #555; border: 2px solid #111; }
+    </style>
+</head>
+<body>
+
+    <h1>Salvavidascraft</h1>
+    
+    <div class="description">
+        Usar esta página para hacer tu pixel art: 
+        <a href="https://www.minecraft-dot.pictures/" target="_blank">minecraft-dot.pictures</a>
+    </div>
+
+    <div id="controls">
+        <div>
+            <label>Subir CSV: </label>
+            <input type="file" id="csvFile" accept=".csv">
+        </div>
+        <div>
+            <label>Offset Mundo ➔ </label>
+            X: <input type="number" id="offsetX" class="offset-input" value="0">
+            Z: <input type="number" id="offsetZ" class="offset-input" value="0">
+        </div>
+    </div>
+
+    <div class="viewport">
+        <div id="grid-container"></div>
+    </div>
+
+    <script>
+        let currentData = null;
+
+        document.getElementById('csvFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                currentData = event.target.result;
+                renderGrid();
+            };
+            reader.readAsText(file);
+        });
+
+        document.querySelectorAll('.offset-input').forEach(input => {
+            input.addEventListener('input', () => { if(currentData) renderGrid(); });
+        });
+
+        function renderGrid() {
+            const container = document.getElementById('grid-container');
+            const offX = parseInt(document.getElementById('offsetX').value) || 0;
+            const offZ = parseInt(document.getElementById('offsetZ').value) || 0;
+            
+            container.innerHTML = ''; 
+            const lines = currentData.split(/\r?\n/);
+            const rows = lines.map(line => line.split(',')).filter(row => row.length > 1 && !isNaN(parseInt(row[0])));
+
+            if (rows.length === 0) return;
+            const numCols = rows[0].length - 1;
+            container.style.gridTemplateColumns = `60px repeat(${numCols}, 28px)`;
+
+            const emptyCorner = document.createElement('div');
+            emptyCorner.className = 'coord-label left top';
+            container.appendChild(emptyCorner);
+
+            for (let xIdx = 0; xIdx < numCols; xIdx++) {
+                const label = document.createElement('div');
+                label.className = 'coord-label top';
+                label.innerText = xIdx + offX;
+                container.appendChild(label);
+            }
+
+            rows.forEach((row, rowIndex) => {
+                const zRel = parseInt(row[0]) - 1; 
+                const zMundo = zRel + offZ;
+                const zLabel = document.createElement('div');
+                zLabel.className = 'coord-label left';
+                zLabel.innerText = zMundo;
+                container.appendChild(zLabel);
+
+                for (let xIdx = 0; xIdx < numCols; xIdx++) {
+                    const blockRaw = row[xIdx + 1]?.trim();
+                    const xMundo = xIdx + offX;
+                    const div = document.createElement('div');
+                    div.className = 'block';
+                    if (rowIndex < 4) div.classList.add('tooltip-bottom');
+                    
+                    if (blockRaw) {
+                        const cleanName = blockRaw.replace('minecraft:', '').replace(/_/g, ' ');
+                        const fileName = blockRaw.includes(':') ? blockRaw.split(':')[1] + '.png' : blockRaw + '.png';
+                        div.style.backgroundImage = `url('textures/${fileName}')`;
+                        div.setAttribute('data-info', `${cleanName}\n${xMundo}, ${zMundo}`);
+                        div.addEventListener('click', () => div.classList.toggle('done'));
+                    }
+                    container.appendChild(div);
+                }
+            });
+        }
+    </script>
+</body>
+</html>
